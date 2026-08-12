@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RMA Metrics — Daily Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+
+<!-- React + Babel -->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<!-- Firebase (compat SDK — exposes global `firebase`) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<style>
+  :root{
+    --bg:#0a0e14; --panel:#111823; --panel-2:#0e141d; --raise:#16202d;
+    --border:#1f2b3a; --border-soft:#182333; --text:#e6edf3; --muted:#8695a8; --muted-2:#5b6b7e;
+    --accent:#4fd1c5; --accent-dim:#2c7a72; --good:#4ade80; --warn:#f0b429; --bad:#f0616d;
+    --shadow:0 10px 30px rgba(0,0,0,.45);
+    --c-cpu:#4fd1c5; --c-ram:#7aa2f7; --c-aio:#9d7cd8; --c-gpu:#f0616d;
+    --c-psu:#f0b429; --c-case:#63c8a0; --c-fans:#6ab0f3; --c-other:#8695a8;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(79,209,197,.06), transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, rgba(122,162,247,.05), transparent 55%),
+      var(--bg);
+    color:var(--text); font-family:'IBM Plex Sans',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased; min-height:100vh;
+  }
+  .mono{font-family:'JetBrains Mono',monospace}
+  button,input,textarea,select{font-family:inherit}
+  ::selection{background:rgba(79,209,197,.3)}
+
+  .app{max-width:1180px;margin:0 auto;padding:0 20px 80px}
+  .topbar{
+    display:flex;align-items:center;gap:16px;padding:18px 0 16px;margin-bottom:22px;
+    border-bottom:1px solid var(--border-soft);position:sticky;top:0;z-index:20;
+    background:linear-gradient(var(--bg),var(--bg) 70%, transparent);
+  }
+  .brand{display:flex;align-items:center;gap:12px}
+  .brand-mark{
+    width:34px;height:34px;border-radius:8px;flex:none;
+    background:linear-gradient(135deg,var(--accent),var(--accent-dim));
+    display:grid;place-items:center;color:#05201d;font-weight:700;
+    box-shadow:0 0 0 1px rgba(79,209,197,.25), 0 6px 16px rgba(79,209,197,.2);
+  }
+  .brand-title{font-weight:700;letter-spacing:.2px;font-size:15px;line-height:1.1}
+  .brand-sub{font-size:11px;color:var(--muted-2);letter-spacing:.14em;text-transform:uppercase}
+  .spacer{flex:1}
+  .whoami{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+  .pill{font-size:11px;text-transform:uppercase;letter-spacing:.1em;padding:3px 9px;border-radius:999px;
+    border:1px solid var(--border);color:var(--accent);background:rgba(79,209,197,.07);font-weight:600}
+  .sync{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted-2)}
+  .sync .d{width:7px;height:7px;border-radius:50%;background:var(--warn)}
+  .sync.live .d{background:var(--good);box-shadow:0 0 8px rgba(74,222,128,.7)}
+
+  .btn{border:1px solid var(--border);background:var(--raise);color:var(--text);padding:8px 14px;border-radius:8px;
+    font-size:13px;font-weight:500;cursor:pointer;transition:border-color .15s,background .15s,transform .05s}
+  .btn:hover{border-color:var(--accent-dim);background:#18242f}
+  .btn:active{transform:translateY(1px)}
+  .btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent-dim));color:#05201d;border-color:transparent;font-weight:700}
+  .btn.primary:hover{filter:brightness(1.06)}
+  .btn.ghost{background:transparent}
+  .btn.danger:hover{border-color:var(--bad);color:var(--bad)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.sm{padding:5px 10px;font-size:12px}
+
+  .login-wrap{min-height:100vh;display:grid;place-items:center;padding:24px}
+  .login{width:100%;max-width:460px}
+  .login .brand{justify-content:center;margin-bottom:6px}
+  .login-tag{text-align:center;color:var(--muted);font-size:13px;margin:0 0 26px}
+  .user-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+  .user-tile{text-align:left;padding:14px;border-radius:12px;cursor:pointer;border:1px solid var(--border);
+    background:var(--panel);transition:border-color .15s,transform .05s,background .15s}
+  .user-tile:hover{border-color:var(--accent-dim);background:var(--raise)}
+  .user-tile.sel{border-color:var(--accent);background:rgba(79,209,197,.06);box-shadow:0 0 0 1px var(--accent-dim)}
+  .user-tile .u-name{font-weight:600;font-size:15px;margin-bottom:3px}
+  .user-tile .u-role{font-size:11.5px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+  .user-tile.mgr{grid-column:1 / -1}
+  .field{width:100%;background:var(--panel-2);border:1px solid var(--border);border-radius:10px;color:var(--text);
+    padding:12px 14px;font-size:15px}
+  .field:focus{outline:none;border-color:var(--accent)}
+  .field::placeholder{color:var(--muted-2)}
+  .pin-row{display:flex;gap:10px;margin-top:10px}
+  .pin-row .field{flex:1}
+  .login-err{color:var(--bad);font-size:13px;text-align:center;margin-top:10px;min-height:18px}
+  .login-note{color:var(--muted-2);font-size:11.5px;text-align:center;margin-top:20px;line-height:1.6}
+  .selected-email{font-size:12px;color:var(--muted);text-align:center;margin:2px 0 0}
+  .linklike{background:none;border:none;color:var(--accent);font-size:12.5px;cursor:pointer;padding:6px 0;display:block;margin:12px auto 0}
+  .linklike:hover{text-decoration:underline}
+
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:18px 18px 20px}
+  .card + .card{margin-top:16px}
+  .card-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .card-head h2{margin:0;font-size:14px;font-weight:600;letter-spacing:.02em}
+  .card-head .eyebrow{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted-2)}
+  .card-head .spacer{flex:1}
+  .section-label{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted-2);margin:0 0 10px}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:820px){.grid-2,.grid-3{grid-template-columns:1fr}.grid-4{grid-template-columns:1fr 1fr}}
+  @media(max-width:560px){.user-grid{grid-template-columns:1fr}}
+
+  .date-strip{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .date-strip .lbl{font-size:12px;color:var(--muted);margin-right:2px}
+  .date-input{background:var(--panel-2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px 10px;font-size:13px}
+  .date-input:focus{outline:none;border-color:var(--accent)}
+  .editing-flag{font-size:12px;color:var(--warn);display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+  .dot{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block}
+
+  .metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:820px){.metric-grid{grid-template-columns:1fr 1fr}}
+  .stepper{background:var(--panel-2);border:1px solid var(--border);border-radius:11px;padding:11px 12px 12px;display:flex;flex-direction:column;gap:9px}
+  .stepper .st-label{font-size:12.5px;color:var(--muted);font-weight:500;display:flex;align-items:center;gap:7px}
+  .swatch{width:9px;height:9px;border-radius:2px;flex:none}
+  .st-controls{display:flex;align-items:center;gap:8px}
+  .st-btn{width:34px;height:34px;flex:none;border-radius:8px;border:1px solid var(--border);background:var(--raise);
+    color:var(--text);font-size:19px;line-height:1;cursor:pointer;display:grid;place-items:center;transition:.12s}
+  .st-btn:hover{border-color:var(--accent-dim);background:#18242f}
+  .st-btn:active{transform:translateY(1px)}
+  .st-val{flex:1;text-align:center;background:transparent;border:none;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:500;width:100%}
+  .st-val:focus{outline:none}
+  .st-val.hot{color:var(--accent)}
+  .highlight-field .stepper{border-color:var(--accent-dim);background:rgba(79,209,197,.05)}
+
+  .notes-area{width:100%;min-height:84px;resize:vertical;background:var(--panel-2);border:1px solid var(--border);
+    border-radius:11px;color:var(--text);padding:12px 13px;font-size:14px;line-height:1.55}
+  .notes-area:focus{outline:none;border-color:var(--accent)}
+  .notes-area::placeholder{color:var(--muted-2)}
+  .form-footer{display:flex;align-items:center;gap:12px;margin-top:18px}
+  .form-footer .total{font-size:13px;color:var(--muted)}
+  .form-footer .total b{color:var(--text);font-family:'JetBrains Mono',monospace;font-size:16px}
+
+  .entry-row{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:10px;border:1px solid var(--border-soft);background:var(--panel-2)}
+  .entry-row + .entry-row{margin-top:8px}
+  .entry-row .e-date{font-family:'JetBrains Mono',monospace;font-size:13px;width:96px;flex:none;color:var(--muted)}
+  .entry-row .e-sum{flex:1;font-size:13px;color:var(--text);min-width:0}
+  .entry-row .e-sum .chip{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--muted);margin-right:9px}
+  .entry-row .e-total{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:500;color:var(--accent);width:44px;text-align:right;flex:none}
+  .empty{color:var(--muted-2);font-size:13px;text-align:center;padding:26px 0}
+
+  .range-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:3px}
+  .seg button{border:none;background:transparent;color:var(--muted);padding:6px 11px;border-radius:6px;font-size:12.5px;cursor:pointer;font-weight:500}
+  .seg button.on{background:var(--raise);color:var(--text)}
+  .kpi{background:var(--panel-2);border:1px solid var(--border);border-radius:12px;padding:14px 15px}
+  .kpi .k-label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted-2);margin-bottom:8px}
+  .kpi .k-val{font-family:'JetBrains Mono',monospace;font-size:27px;font-weight:500;line-height:1}
+  .kpi .k-sub{font-size:12px;color:var(--muted);margin-top:7px}
+  .kpi .k-val.good{color:var(--good)} .kpi .k-val.warn{color:var(--warn)} .kpi .k-val.bad{color:var(--bad)} .kpi .k-val.accent{color:var(--accent)}
+
+  .bar-row{display:grid;grid-template-columns:120px 1fr 52px;align-items:center;gap:12px;margin-bottom:9px}
+  .bar-row .b-label{font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .bar-track{height:12px;background:var(--panel-2);border-radius:6px;overflow:hidden;border:1px solid var(--border-soft)}
+  .bar-fill{height:100%;border-radius:6px;transition:width .5s cubic-bezier(.2,.7,.2,1)}
+  .bar-row .b-val{font-family:'JetBrains Mono',monospace;font-size:13px;text-align:right;color:var(--text)}
+
+  table.matrix{width:100%;border-collapse:collapse;font-size:13px}
+  table.matrix th{text-align:right;font-weight:600;color:var(--muted);padding:9px 10px;border-bottom:1px solid var(--border);font-size:12px;letter-spacing:.03em;white-space:nowrap}
+  table.matrix th:first-child{text-align:left}
+  table.matrix td{padding:9px 10px;border-bottom:1px solid var(--border-soft);text-align:right;font-family:'JetBrains Mono',monospace}
+  table.matrix td:first-child{text-align:left;font-family:'IBM Plex Sans',sans-serif;color:var(--muted)}
+  table.matrix tr:hover td{background:rgba(255,255,255,.015)}
+  .cell-miss{color:var(--bad);font-weight:600} .cell-zero{color:var(--muted-2)} .cell-num{color:var(--text)} .cell-tot{color:var(--accent);font-weight:600}
+
+  .flag-item{display:flex;align-items:flex-start;gap:11px;padding:10px 0;border-bottom:1px solid var(--border-soft)}
+  .flag-item:last-child{border-bottom:none}
+  .flag-name{font-weight:600;font-size:13.5px;width:72px;flex:none}
+  .flag-name .r{display:block;font-weight:400;font-size:11px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.06em}
+  .flag-days{flex:1;display:flex;flex-wrap:wrap;gap:6px}
+  .flag-chip{font-family:'JetBrains Mono',monospace;font-size:11.5px;padding:3px 8px;border-radius:6px;background:rgba(240,97,109,.1);color:var(--bad);border:1px solid rgba(240,97,109,.25)}
+  .flag-clear{font-size:12.5px;color:var(--good);display:flex;align-items:center;gap:7px}
+
+  .compare{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:18px}
+  .compare .side{text-align:center}
+  .compare .side .who{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+  .compare .side .big{font-family:'JetBrains Mono',monospace;font-size:38px;font-weight:500;line-height:1}
+  .compare .vs{color:var(--muted-2);font-size:13px;font-weight:600}
+  .compare .side.in .big{color:var(--accent)} .compare .side.out .big{color:var(--warn)}
+  .compare-bar{height:14px;border-radius:7px;overflow:hidden;display:flex;margin-top:16px;border:1px solid var(--border-soft)}
+  .compare-bar .in{background:var(--accent)} .compare-bar .out{background:var(--warn)}
+  .compare-meta{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:8px}
+
+  .note-log{display:flex;flex-direction:column;gap:10px;max-height:320px;overflow:auto}
+  .note-entry{background:var(--panel-2);border:1px solid var(--border-soft);border-radius:10px;padding:11px 12px}
+  .note-entry .n-head{display:flex;gap:10px;align-items:center;margin-bottom:6px}
+  .note-entry .n-who{font-size:12.5px;font-weight:600}
+  .note-entry .n-role{font-size:11px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.06em}
+  .note-entry .n-date{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted)}
+  .note-entry .n-body{font-size:13.5px;line-height:1.55;color:var(--text)}
+
+  .chart-wrap{width:100%;overflow-x:auto}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:12px;color:var(--muted)}
+  .legend .li{display:flex;align-items:center;gap:6px}
+  .legend .sw{width:11px;height:11px;border-radius:3px;flex:none}
+
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--raise);border:1px solid var(--accent-dim);
+    color:var(--text);padding:11px 18px;border-radius:10px;font-size:13.5px;box-shadow:var(--shadow);z-index:60;display:flex;align-items:center;gap:9px}
+  .toast .dot{background:var(--good)}
+  .toast.err{border-color:var(--bad)} .toast.err .dot{background:var(--bad)}
+
+  .subtle{color:var(--muted);font-size:12.5px;line-height:1.6}
+  .hint{color:var(--muted-2);font-size:12px;line-height:1.55;margin-top:10px}
+  .divider{height:1px;background:var(--border-soft);margin:16px 0}
+  .tag-role{font-size:11px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.06em}
+  code.inl{font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--panel-2);border:1px solid var(--border-soft);padding:1px 6px;border-radius:5px;color:var(--accent)}
+  .gate{max-width:560px}
+  .gate h1{font-size:18px;margin:0 0 4px}
+  .gate ol{margin:14px 0 0;padding-left:20px;color:var(--muted);font-size:13.5px;line-height:1.75}
+  .gate ol code{color:var(--accent)}
+  .spin{width:26px;height:26px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--accent);animation:sp 0.8s linear infinite;margin:0 auto}
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef } = React;
+
+/* ============================================================
+   ┌─────────────────────────────────────────────────────────┐
+   │  1. CONFIG — fill these two blocks in, then deploy.       │
+   └─────────────────────────────────────────────────────────┘
+   ============================================================ */
+
+// (a) Your Firebase project config. Firebase console → Project settings →
+//     "Your apps" → SDK setup and configuration → Config.
+const firebaseConfig = {
+  apiKey:            "AIzaSyDTqqNi3uXVvFQPTQF2l1Fi7IkBIk7YtM4",
+  authDomain:        "rma-metrics.firebaseapp.com",
+  projectId:         "rma-metrics",
+  storageBucket:     "rma-metrics.firebasestorage.app",
+  messagingSenderId: "213454294818",
+  appId:             "1:213454294818:web:fe6c80b81103f269a61f7b",
+};
+
+// (b) Map each sign-in EMAIL to a person. Create these accounts in
+//     Firebase console → Authentication → Users → Add user.
+//     Keep the emails lowercase here and in the security rules.
+//
+//     logRole  = which entry form they get: 'repair' | 'receiving' | 'dispatch'
+//     manager  = true grants the read-all dashboard. A manager can ALSO log
+//                their own metrics (Mike is a bench tech AND the manager),
+//                so their swaps are attributed under their own name.
+//     To add another bench tech, copy a repair line and give them an account.
+const ACCOUNTS = {
+  "matt@starforge.local":   { repId:"matt",   name:"Matt",   logRole:"dispatch",  manager:false },
+  "gabe@starforge.local":   { repId:"gabe",   name:"Gabe",   logRole:"receiving", manager:false },
+  "luke@starforge.local":   { repId:"luke",   name:"Luke",   logRole:"repair",    manager:false },
+  "keagon@starforge.local": { repId:"keagon", name:"Keagon", logRole:"repair",    manager:false },
+  "mike@starforge.local":   { repId:"mike",   name:"Mike",   logRole:"repair",    manager:true  },
+};
+/* ==========================  end config  ========================== */
+
+
+/* ============================================================
+   2. DOMAIN CONSTANTS
+   ============================================================ */
+const COMPONENTS = [
+  { key:'cpu',  label:'CPU',              color:'var(--c-cpu)'  },
+  { key:'ram',  label:'RAM',              color:'var(--c-ram)'  },
+  { key:'aio',  label:'AIO / Cooler',     color:'var(--c-aio)'  },
+  { key:'gpu',  label:'GPU',              color:'var(--c-gpu)'  },
+  { key:'psu',  label:'PSU',              color:'var(--c-psu)'  },
+  { key:'case', label:'Case / Aesthetic', color:'var(--c-case)' },
+  { key:'fans', label:'Fan Swaps',        color:'var(--c-fans)' },
+  { key:'other',label:'Other Repairs',    color:'var(--c-other)'},
+];
+const COMP_KEYS = COMPONENTS.map(c=>c.key);
+const ROLE_LABEL = { dispatch:'Dispatch', receiving:'Receiving', repair:'Repair Technician', manager:'Manager' };
+
+// normalized account lookup + derived user lists
+const ACC = Object.fromEntries(Object.entries(ACCOUNTS).map(([e,p])=>[e.toLowerCase(),p]));
+const USERS = Object.entries(ACC).map(([email,p])=>({ id:p.repId, name:p.name, role:p.logRole, logRole:p.logRole, manager:!!p.manager, email }));
+const MANAGER = USERS.find(u=>u.manager);
+// everyone who logs daily metrics (columns in the matrix, subjects of attribution)
+const SUBMITTERS = USERS.filter(u=>u.logRole);
+// non-manager submitters — the folks the manager chases for missing days
+const TEAM = SUBMITTERS.filter(u=>!u.manager);
+function displayRole(u){ return u.manager ? 'Manager' : ROLE_LABEL[u.logRole]; }
+
+/* ============================================================
+   3. DATE HELPERS (local, no timezone drift)
+   ============================================================ */
+function ymd(d){ const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),da=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
+function parseYmd(s){ const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
+function todayStr(){ return ymd(new Date()); }
+function addDays(s,n){ const d=parseYmd(s); d.setDate(d.getDate()+n); return ymd(d); }
+function shortDate(s){ return parseYmd(s).toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
+function weekdayShort(s){ return parseYmd(s).toLocaleDateString('en-US',{weekday:'short'}); }
+function isWeekend(s){ const w=parseYmd(s).getDay(); return w===0||w===6; }
+function datesInRange(start,end){ const out=[]; if(parseYmd(start)>parseYmd(end)) return out; let cur=start;
+  while(true){ out.push(cur); if(cur===end) break; cur=addDays(cur,1); if(out.length>800) break; } return out; }
+
+/* ============================================================
+   4. ENTRY HELPERS
+   ============================================================ */
+const keyFor = (uid,date)=>`${uid}__${date}`;
+function blankEntry(uid, role, date){
+  const e={ userId:uid, role, date, swaps:{}, notes:'' };
+  COMP_KEYS.forEach(k=>e.swaps[k]=0);
+  if(role==='receiving') e.computersReceived=0;
+  if(role==='dispatch')  e.computersDispatched=0;
+  return e;
+}
+function entryTotal(e){ if(!e) return 0;
+  let t=COMP_KEYS.reduce((a,k)=>a+(e.swaps?.[k]||0),0);
+  return t+(e.computersReceived||0)+(e.computersDispatched||0); }
+function swapTotal(e){ return COMP_KEYS.reduce((a,k)=>a+(e?.swaps?.[k]||0),0); }
+
+/* ============================================================
+   5. SMALL UI PARTS
+   ============================================================ */
+function Stepper({label,color,value,onChange,highlight}){
+  const set=(v)=>onChange(Math.max(0,v|0));
+  return (
+    <div className={highlight?"highlight-field":""}>
+      <div className="stepper">
+        <div className="st-label">{color&&<span className="swatch" style={{background:color}}/>}{label}</div>
+        <div className="st-controls">
+          <button className="st-btn" onClick={()=>set((value||0)-1)} aria-label={"decrease "+label}>−</button>
+          <input className={"st-val"+(value>0?" hot":"")} inputMode="numeric" value={value}
+            onChange={e=>{const n=parseInt(e.target.value.replace(/[^0-9]/g,''),10);set(isNaN(n)?0:n);}}/>
+          <button className="st-btn" onClick={()=>set((value||0)+1)} aria-label={"increase "+label}>+</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+function Toast({toast}){ if(!toast) return null;
+  return <div className={"toast"+(toast.err?" err":"")}><span className="dot"/>{toast.msg}</div>; }
+
+/* ============================================================
+   6. LOGIN (Firebase email/password, catered tiles)
+   ============================================================ */
+function Login({onSignIn, error, busy}){
+  const [sel,setSel]=useState(null);
+  const [pw,setPw]=useState('');
+  const [manual,setManual]=useState(false);
+  const [email,setEmail]=useState('');
+  const pwRef=useRef(null);
+  const reps=TEAM;
+  const mgr=MANAGER;
+
+  const pick=(u)=>{ setSel(u.email); setManual(false); setPw(''); setTimeout(()=>pwRef.current&&pwRef.current.focus(),40); };
+  const go=()=>{ const em=manual? email.trim().toLowerCase() : sel; onSignIn(em,pw); };
+  const selUser = USERS.find(u=>u.email===sel);
+
+  return (
+    <div className="login-wrap">
+      <div className="login">
+        <div className="brand">
+          <div className="brand-mark">R</div>
+          <div><div className="brand-title">RMA Metrics</div><div className="brand-sub">Daily Tracker</div></div>
+        </div>
+        <p className="login-tag">Sign in to push your daily numbers.</p>
+
+        {!manual && (
+          <div className="user-grid">
+            {reps.map(u=>(
+              <button key={u.email} className={"user-tile"+(sel===u.email?" sel":"")} onClick={()=>pick(u)}>
+                <div className="u-name">{u.name}</div>
+                <div className="u-role">{ROLE_LABEL[u.role]}</div>
+              </button>
+            ))}
+            {mgr&&(
+              <button className={"user-tile mgr"+(sel===mgr.email?" sel":"")} onClick={()=>pick(mgr)}>
+                <div className="u-name">{mgr.name} · full access</div>
+                <div className="u-role">{mgr.logRole?`${ROLE_LABEL[mgr.logRole]} + Manager dashboard`:'Manager dashboard'}</div>
+              </button>
+            )}
+          </div>
+        )}
+
+        {manual && (
+          <div style={{marginBottom:8}}>
+            <input className="field" type="email" placeholder="you@starforge.local" value={email}
+              onChange={e=>setEmail(e.target.value)} autoFocus/>
+          </div>
+        )}
+
+        {(sel||manual) && (
+          <>
+            {selUser && !manual && <p className="selected-email">{selUser.email}</p>}
+            <div className="pin-row">
+              <input ref={pwRef} className="field" type="password" placeholder="Password" value={pw}
+                onChange={e=>setPw(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')go();}}/>
+              <button className="btn primary" onClick={go} disabled={busy}>{busy?'…':'Sign in'}</button>
+            </div>
+          </>
+        )}
+
+        <div className="login-err">{error||''}</div>
+        <button className="linklike" onClick={()=>{ setManual(m=>!m); setSel(null); setPw(''); }}>
+          {manual? '← Back to the team list' : 'Use a different email'}
+        </button>
+        <div className="login-note">Accounts are managed in Firebase. Ask your manager to add you if you can't sign in.</div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   7. REP DASHBOARD — daily entry (writes to Firestore)
+   ============================================================ */
+function RepDashboard({user, entries, onSave}){
+  const [date,setDate]=useState(todayStr());
+  const existing=entries[keyFor(user.id,date)];
+  const [entry,setEntry]=useState(()=>existing?{...existing,swaps:{...existing.swaps}}:blankEntry(user.id,user.role,date));
+  const [savedThisDate,setSavedThisDate]=useState(false);
+
+  useEffect(()=>{ const ex=entries[keyFor(user.id,date)];
+    setEntry(ex?{...ex,swaps:{...ex.swaps}}:blankEntry(user.id,user.role,date));
+  // eslint-disable-next-line
+  },[date, existing?updatedKey(existing):null]);
+
+  const setSwap=(k,v)=>setEntry(e=>({...e,swaps:{...e.swaps,[k]:v}}));
+  const total=entryTotal(entry);
+  const isEditing=!!existing;
+  const save=async()=>{
+    await onSave({...entry,date,userId:user.id,role:user.role});
+    setSavedThisDate(true); setTimeout(()=>setSavedThisDate(false),1500);
+  };
+
+  const recent=useMemo(()=>Object.values(entries).filter(e=>e.userId===user.id)
+    .sort((a,b)=>a.date<b.date?1:-1).slice(0,7),[entries,user.id]);
+
+  return (
+    <div>
+      <div className="card">
+        <div className="card-head">
+          <div><div className="eyebrow">Log a day</div><h2>{ROLE_LABEL[user.role]} · daily metrics</h2></div>
+          <div className="spacer"/>
+          {isEditing&&<span className="editing-flag"><span className="dot"/>Editing an existing entry</span>}
+        </div>
+        <div className="date-strip">
+          <span className="lbl">Date</span>
+          <input className="date-input" type="date" value={date} max={todayStr()} onChange={e=>setDate(e.target.value||todayStr())}/>
+          <button className="btn sm ghost" onClick={()=>setDate(todayStr())}>Today</button>
+          <button className="btn sm ghost" onClick={()=>setDate(addDays(todayStr(),-1))}>Yesterday</button>
+          <span className="subtle" style={{marginLeft:4}}>{weekdayShort(date)}</span>
+        </div>
+        <p className="hint" style={{marginTop:2}}>Forgot a day? Pick any past date above and enter it now — it syncs to the right day.</p>
+        <div className="divider"/>
+
+        {(user.role==='receiving'||user.role==='dispatch')&&(
+          <div style={{marginBottom:18}}>
+            <p className="section-label">{user.role==='receiving'?'Intake':'Outgoing'}</p>
+            <div className="metric-grid">
+              {user.role==='receiving'&&<Stepper label="Computers Received" value={entry.computersReceived||0} onChange={v=>setEntry(e=>({...e,computersReceived:v}))} highlight/>}
+              {user.role==='dispatch'&&<Stepper label="Computers Dispatched" value={entry.computersDispatched||0} onChange={v=>setEntry(e=>({...e,computersDispatched:v}))} highlight/>}
+            </div>
+          </div>
+        )}
+
+        <p className="section-label">Component swaps & repairs</p>
+        <div className="metric-grid">
+          {COMPONENTS.map(c=>(
+            <Stepper key={c.key} label={c.label} color={c.color} value={entry.swaps[c.key]||0} onChange={v=>setSwap(c.key,v)}/>
+          ))}
+        </div>
+
+        <p className="section-label" style={{marginTop:20}}>Notes <span style={{textTransform:'none',letterSpacing:0,color:'var(--muted-2)'}}>— anything the numbers miss</span></p>
+        <textarea className="notes-area" value={entry.notes||''} onChange={e=>setEntry(en=>({...en,notes:e.target.value}))}
+          placeholder='e.g. "Deep cleaned two systems, reseated a stubborn AIO, flashed BIOS on the intake batch."'/>
+
+        <div className="form-footer">
+          <div className="total">Actions logged: <b>{total}</b></div>
+          <div className="spacer" style={{flex:1}}/>
+          <button className="btn primary" onClick={save}>{savedThisDate?'Saved ✓':(isEditing?'Update entry':'Save entry')}</button>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head"><div className="eyebrow">Your recent days</div><div className="spacer"/></div>
+        {recent.length===0&&<div className="empty">No entries yet. Log today above to get started.</div>}
+        {recent.map(e=>(
+          <div className="entry-row" key={e.date}>
+            <div className="e-date">{shortDate(e.date)}</div>
+            <div className="e-sum">
+              {e.role==='receiving'&&<span className="chip">in {e.computersReceived||0}</span>}
+              {e.role==='dispatch'&&<span className="chip">out {e.computersDispatched||0}</span>}
+              <span className="chip">swaps {swapTotal(e)}</span>
+              {e.notes?<span className="chip" style={{color:'var(--muted-2)'}}>“{e.notes.slice(0,42)}{e.notes.length>42?'…':''}”</span>:null}
+            </div>
+            <div className="e-total">{entryTotal(e)}</div>
+            <button className="btn sm ghost" onClick={()=>setDate(e.date)}>Edit</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+function updatedKey(e){ try{ return e.updatedAt&&e.updatedAt.seconds?e.updatedAt.seconds:JSON.stringify(e.swaps)+e.notes; }catch(_){ return ''; } }
+
+/* ============================================================
+   8. MANAGER DASHBOARD
+   ============================================================ */
+function rangePreset(preset){
+  const t=todayStr();
+  if(preset==='week'){ const d=parseYmd(t),dow=(d.getDay()+6)%7; return {start:addDays(t,-dow),end:t}; }
+  if(preset==='lastweek'){ const d=parseYmd(t),dow=(d.getDay()+6)%7,mon=addDays(t,-dow); return {start:addDays(mon,-7),end:addDays(mon,-1)}; }
+  if(preset==='month'){ const d=parseYmd(t); return {start:ymd(new Date(d.getFullYear(),d.getMonth(),1)),end:t}; }
+  return {start:addDays(t,-29),end:t};
+}
+function ManagerDashboard({entries}){
+  const [preset,setPreset]=useState('30');
+  const [custom,setCustom]=useState(false);
+  const init=rangePreset('30');
+  const [start,setStart]=useState(init.start);
+  const [end,setEnd]=useState(init.end);
+  const applyPreset=(p)=>{ setPreset(p); setCustom(false); const r=rangePreset(p); setStart(r.start); setEnd(r.end); };
+  const submitters=SUBMITTERS;      // everyone who logs (incl. working manager) — matrix + attribution
+  const flagSubjects=TEAM;          // non-manager folks the manager chases for missing days
+
+  const inRange=useMemo(()=>Object.values(entries).filter(e=>e.date>=start&&e.date<=end),[entries,start,end]);
+
+  const agg=useMemo(()=>{
+    let received=0,dispatched=0,totalSwaps=0; const swapsByComp={}; COMP_KEYS.forEach(k=>swapsByComp[k]=0);
+    const byDate={};
+    inRange.forEach(e=>{
+      received+=e.computersReceived||0; dispatched+=e.computersDispatched||0;
+      const s=swapTotal(e); totalSwaps+=s; COMP_KEYS.forEach(k=>swapsByComp[k]+=(e.swaps?.[k]||0));
+      if(!byDate[e.date]) byDate[e.date]={received:0,dispatched:0,swaps:0};
+      byDate[e.date].received+=e.computersReceived||0; byDate[e.date].dispatched+=e.computersDispatched||0; byDate[e.date].swaps+=s;
+    });
+    const gabe=USERS.find(u=>u.logRole==='receiving'), matt=USERS.find(u=>u.logRole==='dispatch');
+    let intake=0,outgo=0;
+    inRange.forEach(e=>{ if(gabe&&e.userId===gabe.id) intake+=e.computersReceived||0; if(matt&&e.userId===matt.id) outgo+=e.computersDispatched||0; });
+    return {received,dispatched,swapsByComp,totalSwaps,byDate,intake,outgo,gabe,matt};
+  },[inRange]);
+
+  const turn=useMemo(()=>{
+    const days=datesInRange(start,end); let cumIn=0,cumOut=0,wipSum=0,n=0;
+    days.forEach(d=>{ cumIn+=agg.byDate[d]?.received||0; cumOut+=agg.byDate[d]?.dispatched||0; wipSum+=Math.max(0,cumIn-cumOut); n++; });
+    const avgWip=n?wipSum/n:0, throughput=days.length?agg.dispatched/days.length:0;
+    return { est: throughput>0?avgWip/throughput:null, backlog: Math.max(0,agg.received-agg.dispatched) };
+  },[agg,start,end]);
+
+  const flags=useMemo(()=>{ const cap=end>todayStr()?todayStr():end;
+    const days=datesInRange(start,cap).filter(d=>!isWeekend(d));
+    return flagSubjects.map(u=>({user:u, missing:days.filter(d=>!entries[keyFor(u.id,d)])}));
+  },[flagSubjects,entries,start,end]);
+
+  // swaps attributed per person (component-level + total)
+  const perPerson=useMemo(()=>{
+    const rows=submitters.map(u=>{
+      const byComp={}; COMP_KEYS.forEach(k=>byComp[k]=0);
+      inRange.filter(e=>e.userId===u.id).forEach(e=>COMP_KEYS.forEach(k=>{ byComp[k]+=(e.swaps?.[k]||0); }));
+      const total=COMP_KEYS.reduce((a,k)=>a+byComp[k],0);
+      return { user:u, byComp, total };
+    }).sort((a,b)=>b.total-a.total);
+    const grand=rows.reduce((a,r)=>a+r.total,0);
+    const max=Math.max(1,...rows.map(r=>r.total));
+    return { rows, grand, max };
+  },[submitters,inRange]);
+
+  const notes=useMemo(()=>inRange.filter(e=>e.notes&&e.notes.trim()).sort((a,b)=>a.date<b.date?1:-1)
+    .map(e=>({...e, uname:(USERS.find(u=>u.id===e.userId)||{}).name||e.userId})),[inRange]);
+
+  const maxComp=Math.max(1,...COMP_KEYS.map(k=>agg.swapsByComp[k]));
+  const inOut=agg.intake+agg.outgo;
+  const matrixDays=useMemo(()=>{ const cap=end>todayStr()?todayStr():end;
+    return datesInRange(start,cap).filter(d=>!isWeekend(d)).sort((a,b)=>a<b?1:-1); },[start,end]);
+  const chartDays=useMemo(()=>{ const cap=end>todayStr()?todayStr():end;
+    return datesInRange(start,cap).filter(d=>!isWeekend(d)); },[start,end]);
+
+  return (
+    <div>
+      <div className="card">
+        <div className="range-bar">
+          <div className="seg">
+            {[['week','This week'],['lastweek','Last week'],['month','This month'],['30','Last 30 days']].map(([p,l])=>(
+              <button key={p} className={preset===p&&!custom?'on':''} onClick={()=>applyPreset(p)}>{l}</button>
+            ))}
+          </div>
+          <div className="spacer" style={{flex:1}}/>
+          <span className="subtle">Custom</span>
+          <input className="date-input" type="date" value={start} max={end} onChange={e=>{setStart(e.target.value);setCustom(true);}}/>
+          <span className="subtle">→</span>
+          <input className="date-input" type="date" value={end} min={start} max={todayStr()} onChange={e=>{setEnd(e.target.value);setCustom(true);}}/>
+        </div>
+        <p className="hint" style={{marginTop:12,marginBottom:0}}>Showing <b style={{color:'var(--text)'}}>{shortDate(start)} → {shortDate(end)}</b>. Weekends excluded from coverage flags and the daily grid.</p>
+      </div>
+
+      <div className="grid-4" style={{marginTop:16}}>
+        <div className="kpi"><div className="k-label">Received</div><div className="k-val accent">{agg.received}</div><div className="k-sub">computers in</div></div>
+        <div className="kpi"><div className="k-label">Dispatched</div><div className="k-val warn">{agg.dispatched}</div><div className="k-sub">computers out</div></div>
+        <div className="kpi"><div className="k-label">Net flow</div>
+          <div className={"k-val "+(agg.received-agg.dispatched>0?'bad':'good')}>{agg.received-agg.dispatched>0?'+':''}{agg.received-agg.dispatched}</div>
+          <div className="k-sub">{agg.received-agg.dispatched>0?'backlog growing':'keeping pace'}</div></div>
+        <div className="kpi"><div className="k-label">Total swaps</div><div className="k-val">{agg.totalSwaps}</div>
+          <div className="k-sub">{agg.received>0?(agg.totalSwaps/agg.received).toFixed(1)+' per system':'—'}</div></div>
+      </div>
+
+      <div className="card" style={{marginTop:16}}>
+        <div className="card-head"><div><div className="eyebrow">For the C-suite</div><h2>Incoming vs outgoing</h2></div></div>
+        <InOutChart days={chartDays} byDate={agg.byDate}/>
+        <div className="legend">
+          <span className="li"><span className="sw" style={{background:'var(--accent)'}}/>Received</span>
+          <span className="li"><span className="sw" style={{background:'var(--warn)'}}/>Dispatched</span>
+        </div>
+      </div>
+
+      <div className="grid-2" style={{marginTop:16}}>
+        <div className="card">
+          <div className="card-head"><div><div className="eyebrow">Head to head</div><h2>Intake vs Dispatch</h2></div></div>
+          <div className="compare">
+            <div className="side in"><div className="who">{agg.gabe?agg.gabe.name:'Receiving'} · in</div><div className="big">{agg.intake}</div></div>
+            <div className="vs">vs</div>
+            <div className="side out"><div className="who">{agg.matt?agg.matt.name:'Dispatch'} · out</div><div className="big">{agg.outgo}</div></div>
+          </div>
+          <div className="compare-bar">
+            <div className="in" style={{width:(inOut?agg.intake/inOut*100:50)+'%'}}/>
+            <div className="out" style={{width:(inOut?agg.outgo/inOut*100:50)+'%'}}/>
+          </div>
+          <div className="compare-meta">
+            <span>{inOut?Math.round(agg.intake/inOut*100):50}% in</span>
+            <span>{agg.intake===agg.outgo?'even':(agg.intake>agg.outgo?`+${agg.intake-agg.outgo} inbound`:`+${agg.outgo-agg.intake} cleared`)}</span>
+            <span>{inOut?Math.round(agg.outgo/inOut*100):50}% out</span>
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-head"><div><div className="eyebrow">Pain-point signal</div><h2>Turnaround (estimated)</h2></div></div>
+          <div className="grid-2" style={{gap:12}}>
+            <div className="kpi"><div className="k-label">Est. turnaround</div><div className="k-val accent">{turn.est!=null?turn.est.toFixed(1):'—'}</div><div className="k-sub">days in system (avg)</div></div>
+            <div className="kpi"><div className="k-label">Open backlog</div><div className={"k-val "+(turn.backlog>0?'warn':'good')}>{turn.backlog}</div><div className="k-sub">received − dispatched</div></div>
+          </div>
+          <p className="hint">Estimated from daily flow (avg WIP ÷ throughput). Exact per-unit turnaround lives in the Bay Tracker's receipt→dispatch timestamps — this is the fast top-down read.</p>
+        </div>
+      </div>
+
+      <div className="card" style={{marginTop:16}}>
+        <div className="card-head"><div><div className="eyebrow">Per-component volume</div><h2>Swaps by component</h2></div><div className="spacer"/><span className="subtle">{shortDate(start)} → {shortDate(end)}</span></div>
+        {agg.totalSwaps===0&&<div className="empty">No swaps logged in this range.</div>}
+        {agg.totalSwaps>0&&COMPONENTS.map(c=>({...c,val:agg.swapsByComp[c.key]})).sort((a,b)=>b.val-a.val).map(c=>(
+          <div className="bar-row" key={c.key}>
+            <div className="b-label"><span className="swatch" style={{background:c.color}}/>{c.label}</div>
+            <div className="bar-track"><div className="bar-fill" style={{width:(c.val/maxComp*100)+'%',background:c.color}}/></div>
+            <div className="b-val">{c.val}</div>
+          </div>
+        ))}
+        {agg.totalSwaps>0&&<p className="hint">Set the range to a calendar month for your per-month component spend read.</p>}
+      </div>
+
+      <div className="card" style={{marginTop:16}}>
+        <div className="card-head"><div><div className="eyebrow">Workload distribution</div><h2>Swaps by person</h2></div><div className="spacer"/><span className="subtle">{perPerson.grand} total swaps</span></div>
+        {perPerson.grand===0&&<div className="empty">No swaps attributed in this range.</div>}
+        {perPerson.grand>0&&perPerson.rows.map(r=>(
+          <div className="bar-row" key={r.user.id}>
+            <div className="b-label">{r.user.name}{r.user.manager?<span className="tag-role" style={{marginLeft:6}}>you</span>:null}</div>
+            <div className="bar-track"><div className="bar-fill" style={{width:(r.total/perPerson.max*100)+'%',background:'var(--accent)'}}/></div>
+            <div className="b-val">{r.total}<span style={{color:'var(--muted-2)',fontSize:'11px'}}> · {perPerson.grand?Math.round(r.total/perPerson.grand*100):0}%</span></div>
+          </div>
+        ))}
+        {perPerson.grand>0&&<p className="hint">Share of all logged component swaps in the window — the per-tech workload read.</p>}
+      </div>
+
+      <div className="card" style={{marginTop:16}}>
+        <div className="card-head"><div><div className="eyebrow">Detailed attribution</div><h2>Swaps per person, per component</h2></div></div>
+        <div style={{overflowX:'auto'}}>
+          <table className="matrix">
+            <thead>
+              <tr>
+                <th>Person</th>
+                {COMPONENTS.map(c=><th key={c.key} title={c.label}><span className="swatch" style={{background:c.color,display:'inline-block',marginRight:5,verticalAlign:'middle'}}/>{c.label.split(' ')[0]}</th>)}
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {perPerson.rows.map(r=>(
+                <tr key={r.user.id}>
+                  <td>{r.user.name}</td>
+                  {COMPONENTS.map(c=><td key={c.key} className={r.byComp[c.key]>0?'cell-num':'cell-zero'}>{r.byComp[c.key]||0}</td>)}
+                  <td className="cell-tot">{r.total}</td>
+                </tr>
+              ))}
+              <tr>
+                <td style={{color:'var(--text)',fontWeight:600}}>All</td>
+                {COMPONENTS.map(c=><td key={c.key} className="cell-num">{agg.swapsByComp[c.key]}</td>)}
+                <td className="cell-tot">{agg.totalSwaps}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="hint">This is the "component swaps per person" table you were pulling by hand — now it builds itself from what the team logs.</p>
+      </div>
+
+      <div className="card" style={{marginTop:16}}>
+        <div className="card-head"><div><div className="eyebrow">Attention</div><h2>Coverage & missing entries</h2></div></div>
+        {flags.every(f=>f.missing.length===0)
+          ? <div className="flag-clear"><span className="dot" style={{background:'var(--good)'}}/>Everyone's business days are accounted for in this range.</div>
+          : flags.map(f=>(
+            <div className="flag-item" key={f.user.id}>
+              <div className="flag-name">{f.user.name}<span className="r">{ROLE_LABEL[f.user.role]}</span></div>
+              {f.missing.length===0
+                ? <div className="flag-clear"><span className="dot" style={{background:'var(--good)'}}/>All days logged</div>
+                : <div className="flag-days">{f.missing.map(d=><span className="flag-chip" key={d} title={weekdayShort(d)}>{shortDate(d)}</span>)}</div>}
+            </div>
+          ))}
+        <p className="hint">A day is flagged when a rep has no entry on a weekday on or before today. They can back-fill it from their own login, anywhere.</p>
+      </div>
+
+      <div className="card" style={{marginTop:16}}>
+        <div className="card-head"><div><div className="eyebrow">By date</div><h2>Actions per person, per day</h2></div></div>
+        <div style={{overflowX:'auto'}}>
+          <table className="matrix">
+            <thead><tr><th>Date</th>{submitters.map(u=><th key={u.id}>{u.name}</th>)}<th>Day total</th></tr></thead>
+            <tbody>
+              {matrixDays.length===0&&<tr><td colSpan={submitters.length+2} style={{textAlign:'center',color:'var(--muted-2)'}}>No business days in range.</td></tr>}
+              {matrixDays.map(d=>{ let dayTot=0;
+                return (
+                  <tr key={d}>
+                    <td>{shortDate(d)} <span style={{color:'var(--muted-2)'}}>{weekdayShort(d)}</span></td>
+                    {submitters.map(u=>{ const has=entries[keyFor(u.id,d)]; const v=has?entryTotal(has):null; if(v!=null)dayTot+=v;
+                      return <td key={u.id} className={v==null?'cell-miss':(v===0?'cell-zero':'cell-num')}>{v==null?'—':v}</td>; })}
+                    <td className="cell-tot">{dayTot}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="hint"><span style={{color:'var(--bad)'}}>—</span> means no entry submitted for that person that day.</p>
+      </div>
+
+      <div className="card" style={{marginTop:16}}>
+        <div className="card-head"><div><div className="eyebrow">Context</div><h2>Notes from the floor</h2></div></div>
+        {notes.length===0&&<div className="empty">No notes in this range.</div>}
+        <div className="note-log">
+          {notes.map((e,i)=>(
+            <div className="note-entry" key={e.userId+e.date+i}>
+              <div className="n-head"><span className="n-who">{e.uname}</span><span className="n-role">{ROLE_LABEL[e.role]}</span><span className="n-date">{shortDate(e.date)}</span></div>
+              <div className="n-body">{e.notes}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <ManagerBackup entries={entries}/>
+    </div>
+  );
+}
+
+function InOutChart({days,byDate}){
+  if(!days.length) return <div className="empty">No days in range.</div>;
+  const W=Math.max(560,days.length*46), H=200, padL=30, padB=34, padT=12;
+  const maxV=Math.max(1,...days.map(d=>Math.max(byDate[d]?.received||0,byDate[d]?.dispatched||0)));
+  const plotH=H-padB-padT, plotW=W-padL-8, bw=plotW/days.length;
+  const gy=(v)=>padT+plotH-(v/maxV*plotH);
+  const ticks=[0,.5,1].map(f=>Math.round(maxV*f));
+  return (
+    <div className="chart-wrap">
+      <svg width={W} height={H} role="img">
+        {ticks.map((t,i)=>(
+          <g key={i}>
+            <line x1={padL} x2={W-4} y1={gy(t)} y2={gy(t)} stroke="var(--border-soft)" strokeWidth="1"/>
+            <text x={4} y={gy(t)+4} fill="var(--muted-2)" fontSize="10" fontFamily="'JetBrains Mono',monospace">{t}</text>
+          </g>
+        ))}
+        {days.map((d,i)=>{ const rec=byDate[d]?.received||0,dis=byDate[d]?.dispatched||0,cx=padL+i*bw,barW=Math.min(13,(bw-8)/2);
+          return (
+            <g key={d}>
+              <rect x={cx+bw/2-barW-1} y={gy(rec)} width={barW} height={padT+plotH-gy(rec)} rx="2" fill="var(--accent)"/>
+              <rect x={cx+bw/2+1} y={gy(dis)} width={barW} height={padT+plotH-gy(dis)} rx="2" fill="var(--warn)"/>
+              {days.length<=22&&<text x={cx+bw/2} y={H-padB+16} textAnchor="middle" fill="var(--muted-2)" fontSize="9.5" fontFamily="'JetBrains Mono',monospace">{shortDate(d).replace(/ /,'\u00A0')}</text>}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function ManagerBackup({entries}){
+  const [open,setOpen]=useState(false);
+  const doExport=()=>{
+    const blob=new Blob([JSON.stringify({exportedAt:new Date().toISOString(),entries},null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob); const a=document.createElement('a');
+    a.href=url; a.download=`rma-metrics-${todayStr()}.json`; a.click(); URL.revokeObjectURL(url);
+  };
+  return (
+    <div className="card" style={{marginTop:16}}>
+      <div className="card-head" style={{cursor:'pointer'}} onClick={()=>setOpen(o=>!o)}>
+        <div><div className="eyebrow">Manager only</div><h2>Accounts & backup</h2></div>
+        <div className="spacer" style={{flex:1}}/><button className="btn sm ghost">{open?'Hide':'Open'}</button>
+      </div>
+      {open&&(
+        <div>
+          <p className="subtle">Team accounts and passwords are managed in the Firebase console
+            (<b style={{color:'var(--text)'}}>Authentication → Users</b>). Add a person there, then map their email in the
+            <code className="inl">ACCOUNTS</code> block at the top of this file and redeploy.</p>
+          <div className="divider"/>
+          <p className="section-label">Backup snapshot</p>
+          <p className="subtle" style={{marginBottom:12}}>Firestore is the live source of truth. This exports everything currently loaded as a JSON snapshot for your records.</p>
+          <button className="btn" onClick={doExport}>Export JSON snapshot</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   9. GATE SCREENS
+   ============================================================ */
+function CenterCard({children}){ return <div className="login-wrap"><div className="card gate">{children}</div></div>; }
+function ConfigGate(){
+  return (
+    <CenterCard>
+      <div className="brand" style={{marginBottom:14}}>
+        <div className="brand-mark">R</div>
+        <div><div className="brand-title">RMA Metrics</div><div className="brand-sub">Setup required</div></div>
+      </div>
+      <h1>Add your Firebase config</h1>
+      <p className="subtle">This build is wired for live multi-device sync but needs your project details. Open this file and edit the two config blocks near the top of the script:</p>
+      <ol>
+        <li>Paste your project keys into <code>firebaseConfig</code>.</li>
+        <li>Map each rep's sign-in email in <code>ACCOUNTS</code>.</li>
+        <li>In Firebase: enable <code>Email/Password</code> auth, create a Firestore database, and add a user for each rep.</li>
+        <li>Paste the provided rules into <code>Firestore → Rules</code>.</li>
+        <li>Add your GitHub Pages domain under <code>Auth → Settings → Authorized domains</code>.</li>
+      </ol>
+      <p className="hint">Full step-by-step is in the setup checklist that came with this file.</p>
+    </CenterCard>
+  );
+}
+function UnauthorizedGate({email,onSignOut}){
+  return (
+    <CenterCard>
+      <div className="brand" style={{marginBottom:14}}><div className="brand-mark">R</div>
+        <div><div className="brand-title">RMA Metrics</div><div className="brand-sub">Access</div></div></div>
+      <h1>This account isn't mapped to a rep</h1>
+      <p className="subtle">You're signed in as <b style={{color:'var(--text)'}}>{email}</b>, but that email isn't in the <code className="inl">ACCOUNTS</code> list. Ask the manager to add it, then sign in again.</p>
+      <div style={{marginTop:16}}><button className="btn" onClick={onSignOut}>Sign out</button></div>
+    </CenterCard>
+  );
+}
+function LoadingGate(){ return <CenterCard><div className="spin"/><p className="subtle" style={{textAlign:'center',marginTop:16,marginBottom:0}}>Connecting to Firestore…</p></CenterCard>; }
+
+/* ============================================================
+   10. ROOT
+   ============================================================ */
+function App(){
+  const [phase,setPhase]=useState('init');   // init|config|connecting|signedout|unauthorized|ready
+  const [user,setUser]=useState(null);
+  const [badEmail,setBadEmail]=useState('');
+  const [entries,setEntries]=useState({});
+  const [live,setLive]=useState(false);
+  const [toast,setToast]=useState(null);
+  const [authErr,setAuthErr]=useState('');
+  const [busy,setBusy]=useState(false);
+  const notify=(msg,err)=>{ setToast({msg,err}); setTimeout(()=>setToast(null),2600); };
+
+  // init firebase + auth listener
+  useEffect(()=>{
+    if(String(firebaseConfig.apiKey).includes('PASTE_ME')){ setPhase('config'); return; }
+    try{ if(!firebase.apps.length) firebase.initializeApp(firebaseConfig); }catch(e){}
+    try{ firebase.firestore().enablePersistence({synchronizeTabs:true}).catch(()=>{}); }catch(e){}
+    setPhase('connecting');
+    const unsub=firebase.auth().onAuthStateChanged(u=>{
+      if(!u){ setUser(null); setEntries({}); setLive(false); setPhase('signedout'); return; }
+      const email=(u.email||'').toLowerCase(); const prof=ACC[email];
+      if(!prof){ setBadEmail(email); setPhase('unauthorized'); return; }
+      setUser({ id:prof.repId, name:prof.name, role:prof.logRole, logRole:prof.logRole, manager:!!prof.manager, email });
+      setPhase('ready');
+    });
+    return ()=>unsub&&unsub();
+  },[]);
+
+  // live entries subscription
+  useEffect(()=>{
+    if(phase!=='ready'||!user) return;
+    setLive(false);
+    const col=firebase.firestore().collection('entries');
+    const q = user.role==='manager' ? col : col.where('ownerEmail','==',user.email);
+    const unsub=q.onSnapshot(snap=>{
+      const obj={}; snap.forEach(doc=>obj[doc.id]=doc.data()); setEntries(obj); setLive(true);
+    }, err=>{ notify('Sync error: '+(err.code||err.message), true); });
+    return ()=>unsub&&unsub();
+  },[phase,user]);
+
+  const doSignIn=async(email,pw)=>{
+    setAuthErr('');
+    if(!email){ setAuthErr('Pick a rep or enter an email.'); return; }
+    setBusy(true);
+    try{ await firebase.auth().signInWithEmailAndPassword(email,pw); }
+    catch(e){ setAuthErr(friendlyAuth(e.code)); }
+    finally{ setBusy(false); }
+  };
+  const signOut=()=>{ try{ firebase.auth().signOut(); }catch(e){} };
+
+  const saveEntry=async(entry)=>{
+    const id=keyFor(entry.userId,entry.date);
+    const payload={
+      ownerEmail:user.email, userId:entry.userId, role:entry.role, date:entry.date,
+      swaps:entry.swaps, notes:entry.notes||'',
+      computersReceived:entry.computersReceived||0, computersDispatched:entry.computersDispatched||0,
+      updatedAt:firebase.firestore.FieldValue.serverTimestamp(),
+    };
+    try{ await firebase.firestore().collection('entries').doc(id).set(payload,{merge:true}); notify('Saved '+shortDate(entry.date)); }
+    catch(e){ notify('Save failed: '+(e.code||e.message), true); }
+  };
+
+  if(phase==='config')       return <ConfigGate/>;
+  if(phase==='init'||phase==='connecting') return <><LoadingGate/><Toast toast={toast}/></>;
+  if(phase==='signedout')    return <><Login onSignIn={doSignIn} error={authErr} busy={busy}/><Toast toast={toast}/></>;
+  if(phase==='unauthorized') return <><UnauthorizedGate email={badEmail} onSignOut={signOut}/><Toast toast={toast}/></>;
+
+  const isMgr=user.manager;
+  return (
+    <div className="app">
+      <div className="topbar">
+        <div className="brand"><div className="brand-mark">R</div>
+          <div><div className="brand-title">RMA Metrics</div><div className="brand-sub">{isMgr?'Manager dashboard':'Daily tracker'}</div></div></div>
+        <div className="spacer"/>
+        <span className={"sync"+(live?" live":"")}><span className="d"/>{live?'Live':'Syncing…'}</span>
+        <div className="whoami"><span>{user.name}</span><span className="pill">{isMgr?'Manager':ROLE_LABEL[user.role]}</span></div>
+        <button className="btn ghost sm" onClick={signOut}>Sign out</button>
+      </div>
+      {isMgr
+        ? <ManagerShell user={user} entries={entries} onSave={saveEntry}/>
+        : <RepDashboard user={user} entries={entries} onSave={saveEntry}/>}
+      <Toast toast={toast}/>
+    </div>
+  );
+}
+
+/* Manager shell: dashboard + optional "log my day" for working managers */
+function ManagerShell({user, entries, onSave}){
+  const [tab,setTab]=useState('dashboard');
+  const canLog=!!user.logRole;
+  return (
+    <div>
+      {canLog && (
+        <div style={{display:'flex',justifyContent:'center',marginBottom:16}}>
+          <div className="seg">
+            <button className={tab==='dashboard'?'on':''} onClick={()=>setTab('dashboard')}>Dashboard</button>
+            <button className={tab==='log'?'on':''} onClick={()=>setTab('log')}>Log my day</button>
+          </div>
+        </div>
+      )}
+      {tab==='dashboard'
+        ? <ManagerDashboard entries={entries}/>
+        : <RepDashboard user={user} entries={entries} onSave={onSave}/>}
+    </div>
+  );
+}
+function friendlyAuth(code){
+  const m={
+    'auth/invalid-email':'That email doesn\u2019t look right.',
+    'auth/user-not-found':'No account for that email. Ask your manager to add you.',
+    'auth/wrong-password':'Wrong password. Try again.',
+    'auth/invalid-credential':'Email or password is incorrect.',
+    'auth/too-many-requests':'Too many attempts. Wait a moment and retry.',
+    'auth/network-request-failed':'Network issue — check your connection.',
+  };
+  return m[code]||('Sign-in failed'+(code?' ('+code+')':'.'));
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
