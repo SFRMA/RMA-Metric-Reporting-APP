@@ -892,7 +892,6 @@ function ManagerDashboard({ entries }) {
               <div className="k-sub">received − dispatched</div>
             </div>
           </div>
-          <p className="hint">Estimated from daily flow (avg WIP ÷ throughput). Exact per-unit turnaround lives in the Bay Tracker's receipt→dispatch timestamps — this is the fast top-down read.</p>
         </div>
       </div>
 
@@ -970,9 +969,7 @@ function ManagerDashboard({ entries }) {
               </tr>
             </tbody>
           </table>
-        </div>
-        <p className="hint">This is the "component swaps per person" table you were pulling by hand — now it builds itself from what the team logs.</p>
-      </div>
+        </div>      </div>
 
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-head"><div><div className="eyebrow">Attention</div><h2>Coverage &amp; missing entries</h2></div></div>
@@ -986,7 +983,6 @@ function ManagerDashboard({ entries }) {
                 : <div className="flag-days">{f.missing.map(d => <span className="flag-chip" key={d} title={weekdayShort(d)}>{shortDate(d)}</span>)}</div>}
             </div>
           ))}
-        <p className="hint">A day is flagged when a rep has no entry on a weekday on or before today. They can back-fill it from their own login, anywhere.</p>
       </div>
 
       <div className="card" style={{ marginTop: 16 }}>
@@ -1021,7 +1017,6 @@ function ManagerDashboard({ entries }) {
             </tbody>
           </table>
         </div>
-        <p className="hint"><span style={{ color: 'var(--bad)' }}>—</span> means no entry submitted for that person that day.</p>
       </div>
 
       <div className="card" style={{ marginTop: 16 }}>
@@ -1147,7 +1142,6 @@ function ConfigGate() {
         <li>Confirm the emails in <code>RMA_ACCOUNTS</code> match your Firebase accounts and the security rules.</li>
         <li>Redeploy. You only edit <code>config.js</code> once — future app updates won't touch it.</li>
       </ol>
-      <p className="hint">If you just replaced the app file, this is expected — your config lives in config.js, so nothing was lost.</p>
     </CenterCard>
   );
 }
