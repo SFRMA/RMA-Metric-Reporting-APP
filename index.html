@@ -26,6 +26,7 @@
     --shadow:0 10px 30px rgba(0,0,0,.45);
     --c-cpu:#4fd1c5; --c-ram:#7aa2f7; --c-aio:#9d7cd8; --c-gpu:#f0616d;
     --c-psu:#f0b429; --c-case:#63c8a0; --c-fans:#6ab0f3; --c-other:#aab6c6;
+    --c-mobo:#f0894e; --c-drive:#d183d6;
   }
 
   * { box-sizing:border-box; }
@@ -295,14 +296,31 @@ const ACCOUNTS = window.RMA_ACCOUNTS || {
 const COMPONENTS = [
   { key: 'cpu',   label: 'CPU',              color: 'var(--c-cpu)'   },
   { key: 'ram',   label: 'RAM',              color: 'var(--c-ram)'   },
+  { key: 'mobo',  label: 'Motherboard',      color: 'var(--c-mobo)'  },
   { key: 'aio',   label: 'AIO / Cooler',     color: 'var(--c-aio)'   },
   { key: 'gpu',   label: 'GPU',              color: 'var(--c-gpu)'   },
   { key: 'psu',   label: 'PSU',              color: 'var(--c-psu)'   },
+  { key: 'drive', label: 'Drive',            color: 'var(--c-drive)' },
   { key: 'case',  label: 'Case / Aesthetic', color: 'var(--c-case)'  },
   { key: 'fans',  label: 'Fan Swaps',        color: 'var(--c-fans)'  },
   { key: 'other', label: 'Other Repairs',    color: 'var(--c-other)' },
 ];
 const COMP_KEYS = COMPONENTS.map(c => c.key);
+
+// Role-specific tallies beyond the shared component swaps. These are tracked
+// on their own and deliberately kept OUT of the Intake vs Dispatch head-to-head
+// (only computers received/dispatched feed that).
+const RECEIVING_TASKS = [
+  { key: 'componentsReceived', label: 'Components Received' },
+  { key: 'computersUnboxed',   label: 'Computers Unboxed' },
+  { key: 'otherTasks',         label: 'Other Tasks' },
+];
+const DISPATCH_TASKS = [
+  { key: 'standardTesting',  label: 'Standard Testing' },
+  { key: 'gameTesting',      label: 'Game Testing' },
+  { key: 'aestheticRepairs', label: 'Aesthetic Repairs' },
+];
+const TASK_KEYS = [...RECEIVING_TASKS, ...DISPATCH_TASKS].map(t => t.key);
 
 const ROLE_LABEL = {
   dispatch: 'Dispatch',
@@ -373,8 +391,14 @@ const keyFor = (uid, date) => `${uid}__${date}`;
 function blankEntry(uid, role, date) {
   const e = { userId: uid, role, date, swaps: {}, notes: '', pcsWorkedOn: 0, repairsMade: 0 };
   COMP_KEYS.forEach(k => { e.swaps[k] = 0; });
-  if (role === 'receiving') e.computersReceived = 0;
-  if (role === 'dispatch') e.computersDispatched = 0;
+  if (role === 'receiving') {
+    e.computersReceived = 0;
+    RECEIVING_TASKS.forEach(t => { e[t.key] = 0; });
+  }
+  if (role === 'dispatch') {
+    e.computersDispatched = 0;
+    DISPATCH_TASKS.forEach(t => { e[t.key] = 0; });
+  }
   return e;
 }
 
@@ -602,6 +626,30 @@ function RepDashboard({ user, entries, onSave }) {
           </div>
         )}
 
+        {user.role === 'receiving' && (
+          <div style={{ marginBottom: 18 }}>
+            <p className="section-label">Receiving tasks</p>
+            <div className="metric-grid">
+              {RECEIVING_TASKS.map(t => (
+                <Stepper key={t.key} label={t.label} value={entry[t.key] || 0}
+                  onChange={v => setEntry(e => ({ ...e, [t.key]: v }))} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {user.role === 'dispatch' && (
+          <div style={{ marginBottom: 18 }}>
+            <p className="section-label">Testing &amp; bench work</p>
+            <div className="metric-grid">
+              {DISPATCH_TASKS.map(t => (
+                <Stepper key={t.key} label={t.label} value={entry[t.key] || 0}
+                  onChange={v => setEntry(e => ({ ...e, [t.key]: v }))} />
+              ))}
+            </div>
+          </div>
+        )}
+
         <p className="section-label">Component swaps &amp; repairs</p>
         <div className="metric-grid">
           {COMPONENTS.map(c => (
@@ -640,6 +688,8 @@ function RepDashboard({ user, entries, onSave }) {
               <span className="chip">PCs {e.pcsWorkedOn || 0}</span>
               <span className="chip">repairs {e.repairsMade || 0}</span>
               <span className="chip">swaps {swapTotal(e)}</span>
+              {e.role === 'receiving' && <span className="chip">unbox {e.computersUnboxed || 0}</span>}
+              {e.role === 'dispatch' && <span className="chip">tested {(e.standardTesting || 0) + (e.gameTesting || 0)}</span>}
               {e.notes
                 ? <span className="chip" style={{ color: 'var(--muted-2)' }}>“{e.notes.slice(0, 42)}{e.notes.length > 42 ? '…' : ''}”</span>
                 : null}
@@ -698,6 +748,8 @@ function ManagerDashboard({ entries }) {
     let received = 0, dispatched = 0, totalSwaps = 0, pcsWorkedOn = 0, repairsMade = 0;
     const swapsByComp = {};
     COMP_KEYS.forEach(k => { swapsByComp[k] = 0; });
+    const tasks = {};
+    TASK_KEYS.forEach(k => { tasks[k] = 0; });
     const byDate = {};
 
     inRange.forEach(e => {
@@ -709,6 +761,7 @@ function ManagerDashboard({ entries }) {
       const s = swapTotal(e);
       totalSwaps += s;
       COMP_KEYS.forEach(k => { swapsByComp[k] += (e.swaps?.[k] || 0); });
+      TASK_KEYS.forEach(k => { tasks[k] += (e[k] || 0); });
 
       if (!byDate[e.date]) byDate[e.date] = { received: 0, dispatched: 0, swaps: 0 };
       byDate[e.date].received += e.computersReceived || 0;
@@ -718,13 +771,15 @@ function ManagerDashboard({ entries }) {
 
     const gabe = USERS.find(u => u.logRole === 'receiving');
     const matt = USERS.find(u => u.logRole === 'dispatch');
+    // Intake vs Dispatch stays strictly computers received vs dispatched —
+    // the receiving/dispatch task tallies are intentionally excluded.
     let intake = 0, outgo = 0;
     inRange.forEach(e => {
       if (gabe && e.userId === gabe.id) intake += e.computersReceived || 0;
       if (matt && e.userId === matt.id) outgo += e.computersDispatched || 0;
     });
 
-    return { received, dispatched, swapsByComp, totalSwaps, pcsWorkedOn, repairsMade, byDate, intake, outgo, gabe, matt };
+    return { received, dispatched, swapsByComp, totalSwaps, pcsWorkedOn, repairsMade, tasks, byDate, intake, outgo, gabe, matt };
   }, [inRange]);
 
   // rough turnaround: average work-in-progress divided by daily throughput
@@ -970,6 +1025,32 @@ function ManagerDashboard({ entries }) {
             </tbody>
           </table>
         </div>      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-head"><div><div className="eyebrow">Beyond swaps</div><h2>Receiving &amp; bench tasks</h2></div><div className="spacer" /><span className="subtle">{shortDate(start)} → {shortDate(end)}</span></div>
+
+        <p className="section-label">Receiving{agg.gabe ? ` · ${agg.gabe.name}` : ''}</p>
+        <div className="kpi-grid">
+          {RECEIVING_TASKS.map(t => (
+            <div className="kpi" key={t.key}>
+              <div className="k-label">{t.label}</div>
+              <div className="k-val accent">{agg.tasks[t.key]}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="divider" />
+
+        <p className="section-label">Testing &amp; bench work{agg.matt ? ` · ${agg.matt.name}` : ''}</p>
+        <div className="kpi-grid">
+          {DISPATCH_TASKS.map(t => (
+            <div className="kpi" key={t.key}>
+              <div className="k-label">{t.label}</div>
+              <div className="k-val">{agg.tasks[t.key]}</div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-head"><div><div className="eyebrow">Attention</div><h2>Coverage &amp; missing entries</h2></div></div>
@@ -1271,6 +1352,7 @@ function App() {
       repairsMade: entry.repairsMade || 0,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     };
+    TASK_KEYS.forEach(k => { payload[k] = entry[k] || 0; });
     try {
       await firebase.firestore().collection('entries').doc(id).set(payload, { merge: true });
       notify('Saved ' + shortDate(entry.date));
