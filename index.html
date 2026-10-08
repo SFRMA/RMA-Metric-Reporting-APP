@@ -44,7 +44,6 @@
   button, input, textarea, select { font-family:inherit; }
   ::selection { background:rgba(79,209,197,.3); }
 
-  /* person names get their own green so they stand out from the greys */
   .nm { color:var(--name); font-weight:600; }
 
   .app { max-width:1180px; margin:0 auto; padding:0 20px 80px; }
@@ -268,14 +267,13 @@
 <body>
 <div id="root"></div>
 
-<!-- Firebase keys + team roster live here. Set it up once; app updates never touch it. -->
+<!-- Firebase keys + team roster. No need to touch. -->
 <script src="config.js"></script>
 
 <script type="text/babel">
 const { useState, useEffect, useMemo, useRef } = React;
 
-// Config comes from config.js (window.RMA_*). These placeholders only apply
-// when config.js is missing, which just triggers the setup screen.
+// Config comes from config.js
 const firebaseConfig = window.RMA_FIREBASE_CONFIG || {
   apiKey: "PASTE_ME",
   authDomain: "PASTE_ME",
@@ -307,9 +305,6 @@ const COMPONENTS = [
 ];
 const COMP_KEYS = COMPONENTS.map(c => c.key);
 
-// Role-specific tallies beyond the shared component swaps. These are tracked
-// on their own and deliberately kept OUT of the Intake vs Dispatch head-to-head
-// (only computers received/dispatched feed that).
 const RECEIVING_TASKS = [
   { key: 'componentsReceived', label: 'Components Received' },
   { key: 'computersUnboxed',   label: 'Computers Unboxed' },
@@ -336,11 +331,11 @@ const USERS = Object.entries(ACC).map(([email, p]) => ({
   id: p.repId, name: p.name, role: p.logRole, logRole: p.logRole, manager: !!p.manager, email,
 }));
 const MANAGER = USERS.find(u => u.manager);
-const SUBMITTERS = USERS.filter(u => u.logRole);        // everyone who logs a day
-const TEAM = SUBMITTERS.filter(u => !u.manager);        // the folks the manager chases for gaps
+const SUBMITTERS = USERS.filter(u => u.logRole);        
+const TEAM = SUBMITTERS.filter(u => !u.manager);        
 
 
-// --- dates (kept local so there's no timezone drift) ---
+// --- dates ---
 
 function ymd(date) {
   const y = date.getFullYear();
@@ -411,7 +406,6 @@ function entryTotal(e) {
   return swapTotal(e) + (e.computersReceived || 0) + (e.computersDispatched || 0);
 }
 
-// used as an effect dependency so the form reloads when a synced entry changes
 function updatedKey(e) {
   try {
     if (e.updatedAt && e.updatedAt.seconds) return e.updatedAt.seconds;
@@ -547,7 +541,7 @@ function Login({ onSignIn, error, busy }) {
 }
 
 
-// --- daily entry (what a rep, or the manager on "log my day", sees) ---
+// --- daily entry ---
 
 function RepDashboard({ user, entries, onSave }) {
   const [date, setDate] = useState(todayStr());
@@ -557,7 +551,7 @@ function RepDashboard({ user, entries, onSave }) {
   );
   const [savedThisDate, setSavedThisDate] = useState(false);
 
-  // reload the form whenever the date changes or a synced copy of this day updates
+  // reload the form whenever the date changes
   useEffect(() => {
     const ex = entries[keyFor(user.id, date)];
     setEntry(ex ? { ...ex, swaps: { ...ex.swaps } } : blankEntry(user.id, user.role, date));
