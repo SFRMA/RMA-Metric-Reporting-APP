@@ -12,6 +12,6 @@ window.RMA_ACCOUNTS = {
   "matt@starforge.local":   { repId:"matt",   name:"Matt",   logRole:"dispatch",  manager:false },
   "gabe@starforge.local":   { repId:"gabe",   name:"Gabe",   logRole:"receiving", manager:false },
   "luke@starforge.local":   { repId:"luke",   name:"Luke",   logRole:"repair",    manager:false },
-  "caleb@starforge.local": { repId:"caleb", name:"caleb", logRole:"repair",    manager:false },
+  "caleb@starforge.local": { repId:"caleb", name:"Caleb", logRole:"repair",    manager:false },
   "mike@starforge.local":   { repId:"mike",   name:"Mike",   logRole:"repair",    manager:true  },
 };
